@@ -1,0 +1,374 @@
+//
+//  WriteCaseEditViewController.m
+//  MedicalCase
+//
+//  Created by ihefe-JF on 15/4/29.
+//  Copyright (c) 2015年 ihefe. All rights reserved.
+//
+
+#import "WriteCaseEditViewController.h"
+#import "personInfoView.h"
+#import "AutoHeightTextView.h"
+#import "RawDataProcess.h"
+#import "WLKCaseNode.h"
+#import "HUDSubViewController.h"
+#import "ConditionTemplateViewController.h"
+#import "Template.h"
+#import "KeyValueObserver.h"
+
+@interface WriteCaseEditViewController ()<UITableViewDataSource,UITableViewDelegate, /*HUDSubViewControllerDelegate*/ConditionTemplateViewControllerDelegate>
+@property (nonatomic,strong) id multiTablesObsevToken;
+
+@property (nonatomic,strong) NSArray *dataArray;
+
+@property (nonatomic,strong) WLKCaseNode *sourceNode;
+
+@property (nonatomic,strong) WLKCaseNode *selectedNode;
+
+@property (nonatomic,strong) NSMutableDictionary *nodeChildDic;
+@property (nonatomic,strong) NSArray *nodeChildArray;
+@property (weak, nonatomic) IBOutlet AutoHeightTextView *textView;
+@property (weak, nonatomic) IBOutlet UITableView *tableView;
+@property (weak, nonatomic) IBOutlet UILabel *titleLabel;
+@property (nonatomic,strong) NSString *templateNameStr;
+
+@property (nonatomic,strong) NSMutableDictionary *tempDic;
+
+@end
+@implementation WriteCaseEditViewController
+
+@synthesize labelString = _labelString;
+- (IBAction)cancelButton:(UIBarButtonItem *)sender
+{
+    if (self.rightSlideViewFlag) {
+        [self performSegueWithIdentifier:@"testSegue" sender:nil];
+    }
+    [self.navigationController popToRootViewControllerAnimated:YES];
+}
+- (IBAction)saveButton:(UIBarButtonItem *)sender
+{
+    NSString *tempStr = [self.textView.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    [self.WriteDelegate didWriteStringToMedicalRecord:tempStr];
+    [self.navigationController popToRootViewControllerAnimated:YES];
+    
+}
+- (IBAction)lefTopButton:(UIButton *)sender
+{
+    
+    UILabel *label = (UILabel*)[self.view viewWithTag:10001];
+    
+    if (self.rightSlideViewFlag) {
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"containerToSub" object:label.text];
+    }else {
+        self.templateNameStr = label.text;
+        [self performSegueWithIdentifier:@"testSegue" sender:nil];
+    }
+
+}
+
+-(NSMutableDictionary *)tempDic
+{
+    if (!_tempDic) {
+        _tempDic = [[NSMutableDictionary alloc] init];
+    }
+    return _tempDic;
+}
+
+#pragma mask - property
+-(UIView *)rightSideSlideView
+{
+    if(!_rightSideSlideView){
+        _rightSideSlideView = [[UIView alloc] initWithFrame:CGRectMake(CGRectGetWidth(self.view.frame),0,rightSideSlideViewWidth , CGRectGetHeight(self.view.frame) - 0 - 45)];
+        _rightSideSlideView.backgroundColor = [UIColor yellowColor];
+        
+        UISwipeGestureRecognizer *recoginizer = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(hideRightSildeView:)];
+        recoginizer.direction = UISwipeGestureRecognizerDirectionRight;
+        
+        [_rightSideSlideView addGestureRecognizer:recoginizer];
+        
+        // [self.view addSubview:_rightSideSlideView];
+        UIWindow *keyWindow = [[UIApplication sharedApplication] keyWindow];
+        [keyWindow addSubview:self.rightSideSlideView];
+        
+        self.rightSlideViewFlag = YES;
+    }
+    
+    return _rightSideSlideView;
+}
+-(void)hideRightSildeView:(UISwipeGestureRecognizer *)swipGesture
+{
+    
+    CGRect tempRect = self.rightSideSlideView.frame;
+    tempRect.origin.x += rightSideSlideViewWidth - 10;
+    [UIView animateWithDuration:0.4 animations:^{
+        self.rightSideSlideView.frame = tempRect;
+        //[self performSegueWithIdentifier:@"MedicalCaseModel" sender:nil];
+    } completion:^(BOOL finished) {
+        [self performSegueWithIdentifier:@"testSegue" sender:nil];
+        //self.modelVC = nil;
+        //        [self.rightSideSlideView removeFromSuperview];
+        //        self.rightSideSlideView = nil;
+    }];
+    
+}
+-(NSArray *)dataArray
+{
+    if (!_dataArray) {
+        _dataArray = [[NSArray alloc] init];
+    }
+    return _dataArray;
+}
+
+-(NSArray *)nodeChildArray
+{
+    if (!_nodeChildArray) {
+        NSMutableArray *tempArray = [[NSMutableArray alloc] init];
+        for (WLKCaseNode *tempNode in self.sourceNode.childNodes) {
+            [tempArray addObject:tempNode.nodeName];
+        }
+        _nodeChildArray = [NSArray arrayWithArray:tempArray];
+    }
+    return _nodeChildArray;
+}
+-(NSMutableDictionary *)nodeChildDic
+{
+    if (!_nodeChildDic) {
+        _nodeChildDic = [[NSMutableDictionary alloc] init];
+        for (int i=0; i< self.sourceNode.childNodes.count; i++) {
+            NSString *tempStr = [self.nodeChildArray objectAtIndex:i];
+            [_nodeChildDic setObject:@"" forKey:tempStr];
+        }
+    }
+    return _nodeChildDic;
+}
+-(void)setLabelString:(NSString *)labelString
+{
+    _labelString = labelString;
+    self.templateNameStr = _labelString;
+    RawDataProcess *rawData = [RawDataProcess sharedRawData];
+    self.sourceNode = [WLKCaseNode getSubNodeFromNode:rawData.rootNode withNodeName:_labelString resultNode:nil];
+    
+}
+-(void)setMultiTableView:(WLKMultiTableView *)multiTableView
+{
+    _multiTableView = multiTableView;
+    
+    self.multiTablesObsevToken = [KeyValueObserver observeObject:self.multiTableView keyPath:@"selectedStr" target:self selector:@selector(selectedTextDidChange:) options:NSKeyValueObservingOptionInitial];
+}
+-(void)selectedTextDidChange:(NSDictionary*)change
+{
+    if (self.multiTableView.selectedStr) {
+        [self.nodeChildDic setObject:self.multiTableView.selectedStr forKey:self.multiTableView.caseNode.nodeName];
+        
+        NSString *nodeName = self.multiTableView.caseNode.nodeName;
+        NSString *t = [NSString stringWithFormat:@"%@: ",nodeName];
+        NSString *nodeST = [t stringByAppendingString: self.multiTableView.selectedStr];
+        
+        if ([self.nodeChildDic.allKeys containsObject:nodeName]) {
+            [self.nodeChildDic setObject:nodeST forKey:nodeName];
+        }
+        
+        self.textView.text = @"";
+        NSString *tempString = @"";
+        for (NSString *temp in self.nodeChildArray) {
+            NSString *tempSt = self.nodeChildDic[temp];
+            if (![tempSt isEqualToString:@""]) {
+                //  NSString *returnStr = [tempSt stringByAppendingString:@"\n"];
+                tempString = [tempString stringByAppendingString:tempSt];
+            }
+        }
+        self.textView.text = tempString;
+        
+    }
+    //self.selectedText.text = self.multiTables.selectedStr;
+    
+}
+-(void)covertDicToString:(NSMutableDictionary*)dic
+{
+    
+}
+#pragma mask - view controller life cycle
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.textView.text = nil;
+    self.title = self.labelString;
+    [self addSideButttonToWindow];
+    [self setUpTableView];
+}
+-(void)setUpTableView
+{
+    self.tableView.layer.shadowColor = [[UIColor grayColor] CGColor];
+    self.tableView.layer.shadowOffset = CGSizeMake(2.0f, -2.0f);
+    self.tableView.layer.shadowOpacity = 0.5f;
+    self.tableView.layer.shadowRadius = 2.0f;
+    ;
+    self.multiTableView.layer.borderWidth = 1;
+    self.tableView.layer.borderWidth  =1;
+}
+-(void)viewWillAppear:(BOOL)animated
+{
+    [super viewWillAppear:animated];
+    
+    if (self.labelString) {
+        self.titleLabel.text = self.labelString;
+    }else {
+        abort();
+    }
+    
+}
+-(void)addSideButttonToWindow
+{
+    UIWindow *keyWindow = [[UIApplication sharedApplication] keyWindow];
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeRoundedRect];
+    [button setTitle:@"按钮" forState:UIControlStateNormal];
+    CGRect frame = CGRectMake(keyWindow.frame.size.width - 60, CGRectGetMidY(keyWindow.frame), 60, 60);
+    [button addTarget:self action:@selector(sideButtonClicked:) forControlEvents:UIControlEventTouchUpInside];
+    button.frame = frame;
+    [keyWindow addSubview:button];
+}
+-(void)sideButtonClicked:(UIButton*)sender
+{
+    self.templateNameStr = self.selectedNode.nodeName;
+    
+    [self performSegueWithIdentifier:@"testSegue" sender:nil];
+}
+-(void)viewDidAppear:(BOOL)animated
+{
+    [super viewDidAppear:animated];
+    
+    [self performSegueWithIdentifier:@"testSegue" sender:nil];
+    
+    // [self setUpMultiTableView];
+}
+
+#pragma mask - setUp multiTableView
+-(void)setUpMultiTableView:(NSString*)nodeName
+{
+    self.multiTableView.caseNode = [self getSelectedNodeWithNodeName:nodeName];
+    [self.multiTableView buildUI];
+    
+}
+#pragma mask - table view delegate
+-(NSInteger)numberOfSectionsInTableView:(UITableView *)tableView
+{
+    return 1;
+}
+-(NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
+{
+    return self.sourceNode.childNodes.count;
+}
+-(UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"navagationCell"];
+    UILabel *cellLabel =(UILabel*) [cell viewWithTag:1001];
+    WLKCaseNode *tempNode = [self.sourceNode.childNodes objectAtIndex:indexPath.row];
+    cellLabel.text = tempNode.nodeName;
+    
+    return cell;
+}
+-(void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    self.selectedNode = [self.sourceNode.childNodes objectAtIndex:indexPath.row];
+    //[self performSegueWithIdentifier:@"containerToSub" sender:nil];
+    if (self.rightSlideViewFlag) {
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"containerToSub" object:self.selectedNode];
+    }
+    //    }else {
+    ////        [[NSNotificationCenter defaultCenter] postNotificationName:@"containerToSub" object:self.selectedNode];
+    ////
+    ////        self.templateNameStr = self.selectedNode.nodeName;
+    ////        [self performSegueWithIdentifier:@"testSegue" sender:nil];
+    //    }
+    
+    [self setUpMultiTableView:self.selectedNode.nodeName];
+    
+}
+-(WLKCaseNode*)getSelectedNodeWithNodeName:(NSString*)nodeName
+{
+    RawDataProcess *rawData = [RawDataProcess sharedRawData];
+    WLKCaseNode *node = [WLKCaseNode getSubNodeFromNode:rawData.rootNode withNodeName:nodeName resultNode:nil];
+    
+    return node;
+}
+
+//#pragma mask - HUDSubViewControllerDelegate
+//-(void)didSelectedNodesString:(NSString *)nodesString withParentNodeName:(NSString *)nodeName
+//{
+//    NSString *t = [NSString stringWithFormat:@"%@: ",nodeName];
+//    NSString *nodeST = [t stringByAppendingString: nodesString];
+//
+//    if ([self.nodeChildDic.allKeys containsObject:nodeName]) {
+//        [self.nodeChildDic setObject:nodeST forKey:nodeName];
+//    }
+//
+//    self.textView.text = @"";
+//    NSString *tempString = @"";
+//    for (NSString *temp in self.nodeChildArray) {
+//        NSString *tempSt = self.nodeChildDic[temp];
+//        if (![tempSt isEqualToString:@""]) {
+//          //  NSString *returnStr = [tempSt stringByAppendingString:@"\n"];
+//            tempString = [tempString stringByAppendingString:tempSt];
+//        }
+//    }
+//    self.textView.text = tempString;
+//}
+#pragma mask - ConditionTemplateViewControllerDelegate
+-(void)didSelectedTemplateWithNode:(Template *)templated
+{
+    
+    NSString *nodeName = templated.node.nodeName;
+    NSString *nodesString = templated.content;
+    
+    if ([nodeName isEqualToString:self.labelString]) {
+        self.textView.text = nodesString;
+    }else {
+        NSString *t = [NSString stringWithFormat:@"%@: ",nodeName];
+        NSString *nodeST = [t stringByAppendingString: nodesString];
+        
+        if ([self.nodeChildDic.allKeys containsObject:nodeName]) {
+            [self.nodeChildDic setObject:nodeST forKey:nodeName];
+        }
+        
+        self.textView.text = @"";
+        NSString *tempString = @"";
+        for (NSString *temp in self.nodeChildArray) {
+            NSString *tempSt = self.nodeChildDic[temp];
+            if (![tempSt isEqualToString:@""]) {
+                //  NSString *returnStr = [tempSt stringByAppendingString:@"\n"];
+                tempString = [tempString stringByAppendingString:tempSt];
+            }
+        }
+        self.textView.text = tempString;
+        
+    }
+    self.rightSlideViewFlag = NO;
+    [self performSegueWithIdentifier:@"testSegue" sender:nil];
+    
+    
+}
+#pragma mark - Navigation
+
+// In a storyboard-based application, you will often want to do a little preparation before navigation
+-(void)prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender {
+    
+    //    if ([segue.identifier isEqualToString:@"containerToSub"]) {
+    //        HUDSubViewController *hubVC = (HUDSubViewController*)segue.destinationViewController;
+    //        hubVC.detailCaseNode = [self getSelectedNodeWithNodeName:self.selectedNode.nodeName];
+    //        hubVC.isInContainerView = YES;
+    //        hubVC.subDelegate = self;
+    //      //  hubVC.title = self.labelString;
+    //
+    //    }
+    
+    if([segue.identifier isEqualToString:@"testSegue"]){
+        
+        UINavigationController *nav = (UINavigationController*)segue.destinationViewController;
+        ConditionTemplateViewController *conditionTVC = (ConditionTemplateViewController*)[nav.viewControllers firstObject];
+        conditionTVC.templateName = self.templateNameStr;
+        conditionTVC.delegate = self;
+    }
+    
+}
+
+
+@end
